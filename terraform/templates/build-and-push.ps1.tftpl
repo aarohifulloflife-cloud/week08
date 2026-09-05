@@ -1,0 +1,19 @@
+$ErrorActionPreference = "Stop"
+
+az acr login --name ${acr_name}
+
+$services = @{
+    "frontend"           = "koalatech-frontend"
+    "user-service"       = "koalatech-user-service"
+    "student-service"    = "koalatech-student-service"
+    "lecturer-service"   = "koalatech-lecturer-service"
+    "course-service"     = "koalatech-course-service"
+    "enrollment-service" = "koalatech-enrollment-service"
+}
+
+foreach ($dir in $services.Keys) {
+    $image = "${acr_login_server}/$($services[$dir]):${image_tag}"
+    Write-Host "Building $image"
+    docker build -t $image ./$dir
+    docker push $image
+}

@@ -5,7 +5,9 @@ on:
   push:
     branches:
       - main
-  
+  pull_request:
+    branches:
+      - main
   # Manual trigger for the workflow
   workflow_dispatch:
 

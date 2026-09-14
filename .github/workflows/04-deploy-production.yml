@@ -45,12 +45,16 @@ jobs:
       # the conditional on every kubectl set image step.
       - name: Resolve image tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_TAG: ${{ inputs.image_tag }}
+          CHAINED_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.image_tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$MANUAL_TAG"
             echo "Manual promotion of $TAG"
           else
-            TAG="${{ github.event.workflow_run.head_sha }}"
+            TAG="$CHAINED_TAG"
             echo "Automatic promotion of $TAG from staging"
           fi
 

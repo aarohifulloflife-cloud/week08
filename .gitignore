@@ -199,3 +199,4 @@ cython_debug/
 node_modules/
 *.env
 .env
+kubernetes/07-application-secret.yaml

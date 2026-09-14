@@ -197,3 +197,6 @@ cython_debug/
 .cursorindexingignore
 
 node_modules/
+*.env
+.env
+kubernetes/07-application-secret.yaml

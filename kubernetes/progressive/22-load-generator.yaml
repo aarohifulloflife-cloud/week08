@@ -1,0 +1,36 @@
+# Steady synthetic traffic. A canary receiving two or three requests a
+# minute produces an error rate that means nothing, so the analysis
+# needs a known baseline load. About 8 requests per second goes to the
+# student-service Service, which kube-proxy spreads across stable and
+# canary pods by replica count.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+        - name: load-generator
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                curl -s -o /dev/null http://student-service:8000/
+                sleep 0.12
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi

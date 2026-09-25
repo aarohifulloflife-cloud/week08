@@ -1,0 +1,127 @@
+name: 06 - Progressive Delivery
+
+# Releases student-service to production as a canary. Argo Rollouts
+# moves traffic 25% -> 50% -> 75% -> 100% while an AnalysisTemplate
+# checks the canary's error rate in Prometheus. If the rate crosses the
+# threshold, Argo aborts and returns all traffic to the stable version,
+# and this job fails so the rollback is visible in the pipeline.
+#
+# Runs after the staging smoke test, like workflow 05, or by hand with
+# a specific image SHA (used for the first install and for demos).
+
+on:
+  workflow_run:
+    workflows: ["03 - Test Staging"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image SHA of koalatech-student-service to release"
+        required: true
+        type: string
+
+# Never run two releases of the same service at once.
+concurrency:
+  group: progressive-delivery-student-service
+  cancel-in-progress: false
+
+jobs:
+  canary-release:
+    name: Canary release of student-service
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    environment:
+      name: production
+
+    # Inputs go through env rather than being pasted into scripts, which
+    # avoids the script injection issue SonarCloud flagged in week 9.
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag || github.event.workflow_run.head_sha }}
+      ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP }} \
+            --name ${{ vars.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Install Argo Rollouts kubectl plugin
+        run: |
+          curl -sSL -o kubectl-argo-rollouts \
+            https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-amd64
+          chmod +x kubectl-argo-rollouts
+          sudo mv kubectl-argo-rollouts /usr/local/bin/
+          kubectl argo rollouts version
+
+      - name: Confirm the image exists in ACR
+        run: |
+          az acr repository show \
+            --name "$ACR_NAME" \
+            --image "koalatech-student-service:$IMAGE_TAG" \
+            --output table
+
+      - name: Apply ServiceMonitor, AnalysisTemplate and load generator
+        run: |
+          kubectl apply -f kubernetes/progressive/
+
+      - name: Start the canary
+        run: |
+          IMAGE="$ACR_LOGIN_SERVER/koalatech-student-service:$IMAGE_TAG"
+          echo "Releasing $IMAGE"
+          sed "s|__IMAGE__|$IMAGE|" \
+            kubernetes/progressive/rollout/student-service-rollout.yaml \
+            | kubectl apply -f -
+
+      # Exits non-zero if Argo aborts the rollout, which fails the job.
+      - name: Wait for promotion or rollback
+        run: |
+          kubectl argo rollouts status student-service \
+            -n production \
+            --timeout 15m
+
+      - name: Show rollout and analysis
+        if: always()
+        run: |
+          kubectl argo rollouts get rollout student-service -n production || true
+          kubectl get analysisrun -n production \
+            --sort-by=.metadata.creationTimestamp || true
+
+      - name: Write job summary
+        if: always()
+        run: |
+          PHASE=$(kubectl get rollout student-service -n production \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo Unknown)
+          RUN=$(kubectl get analysisrun -n production \
+            --sort-by=.metadata.creationTimestamp \
+            -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null || true)
+          RESULT=$(kubectl get analysisrun "$RUN" -n production \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo Unknown)
+          {
+            echo "### student-service canary release"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Image tag | \`$IMAGE_TAG\` |"
+            echo "| Rollout phase | $PHASE |"
+            echo "| Latest AnalysisRun | \`$RUN\` |"
+            echo "| Analysis result | $RESULT |"
+            echo ""
+            if [ "$RESULT" = "Failed" ]; then
+              echo "Canary failed the success-rate check and was rolled back automatically. Production is still on the previous stable version."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

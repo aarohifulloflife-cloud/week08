@@ -1,0 +1,43 @@
+# The release gate. Every 30 seconds Argo Rollouts asks Prometheus what
+# fraction of the CANARY's requests over the last minute were not 5xx.
+#
+# canary-hash is the pod-template-hash of the new ReplicaSet, passed in
+# by the Rollout. Pod names are <rollout>-<hash>-<random>, so the regex
+# selects only canary pods even though they sit behind the same Service
+# as the stable pods.
+#
+# Do NOT change status="5xx" to a numeric code. The instrumentator
+# groups codes by default, so the label value is "5xx", never "500".
+# A query on "500" matches nothing and every release would pass.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: student-service-success-rate
+  namespace: production
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: success-rate
+      interval: 30s
+      # Let the canary receive traffic and be scraped at least twice
+      # before the first measurement.
+      initialDelay: 30s
+      # One bad reading is tolerated. A second aborts the rollout.
+      failureLimit: 1
+      # Prometheus unreachable three times in a row also aborts.
+      consecutiveErrorLimit: 3
+      # An empty result means no canary traffic, which fails closed.
+      successCondition: len(result) > 0 && result[0] >= 0.95
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          # 1 minus the canary's 5xx ratio. "or vector(0)" makes a canary
+          # with no errors score 1 and a canary with only errors score 0.
+          # A canary with no traffic returns nothing and fails closed.
+          query: |
+            1 - (
+              (sum(rate(http_requests_total{namespace="production", pod=~"student-service-{{args.canary-hash}}-.*", status="5xx"}[1m])) or vector(0))
+              /
+              sum(rate(http_requests_total{namespace="production", pod=~"student-service-{{args.canary-hash}}-.*"}[1m]))
+            )

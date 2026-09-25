@@ -1,0 +1,19 @@
+# Tells Prometheus to scrape /metrics on every student-service pod.
+# Prometheus Operator adds pod and namespace labels to every series,
+# which is what lets the analysis separate canary pods from stable ones.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: student-service
+  namespace: production
+spec:
+  selector:
+    matchLabels:
+      app: student-service
+  namespaceSelector:
+    matchNames:
+      - production
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

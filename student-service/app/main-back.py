@@ -3,7 +3,6 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy.exc import OperationalError
 
 from app.db import Base, engine
@@ -81,15 +80,6 @@ app = FastAPI(
 
 
 app.include_router(students.router)
-
-
-# Exposes request metrics at /metrics for Prometheus. /health and
-# /metrics are excluded so probe and scrape traffic does not dilute the
-# error rate the canary analysis measures. Status codes stay grouped
-# (2xx, 4xx, 5xx), which is why the AnalysisTemplate filters on "5xx".
-Instrumentator(
-    excluded_handlers=["/health", "/metrics"],
-).instrument(app).expose(app, include_in_schema=False)
 
 
 @app.get(

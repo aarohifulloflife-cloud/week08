@@ -1,0 +1,101 @@
+# Replaces the student-service Deployment. The pod template is the
+# original one plus a readiness probe and resource requests.
+#
+# __IMAGE__ is replaced at deploy time by workflow 06 (or by the
+# PowerShell command in the README). This file sits in its own folder
+# so that "kubectl apply -f kubernetes/progressive/" never applies it
+# with the placeholder, which would start a canary of a broken image.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: student-service
+  namespace: production
+spec:
+  replicas: 4
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: student-service
+  template:
+    metadata:
+      labels:
+        app: student-service
+    spec:
+      containers:
+        - name: student-service
+          image: __IMAGE__
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          # Readiness only proves the process is up. It cannot see a
+          # version that starts fine and then returns 500s, which is
+          # the gap the analysis closes.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: application-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: application-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: students
+            - name: POSTGRES_HOST
+              value: student-db
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: application-secret
+                  key: JWT_SECRET_KEY
+            - name: JWT_ALGORITHM
+              value: HS256
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: application-secret
+                  key: AZURE_STORAGE_CONNECTION_STRING
+            - name: AZURE_STORAGE_CONTAINER_NAME
+              value: student-profile-photo
+  strategy:
+    canary:
+      # Bring up the canary pod before removing a stable one, so
+      # capacity never drops during the release.
+      maxSurge: 1
+      maxUnavailable: 0
+      # Background analysis runs for the whole release from step 1
+      # onwards. A failure at any point aborts and rolls back.
+      analysis:
+        templates:
+          - templateName: student-service-success-rate
+        startingStep: 1
+        args:
+          - name: canary-hash
+            valueFrom:
+              podTemplateHashValue: Latest
+      # No ingress controller in this architecture, so weight is set by
+      # replica ratio. With 4 replicas each step is one pod (25%).
+      steps:
+        - setWeight: 25
+        - pause: {duration: 2m}
+        - setWeight: 50
+        - pause: {duration: 2m}
+        - setWeight: 75
+        - pause: {duration: 1m}

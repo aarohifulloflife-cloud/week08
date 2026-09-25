@@ -22,7 +22,7 @@ ENV VITE_ENROLLMENT_SERVICE_URL=${VITE_ENROLLMENT_SERVICE_URL}
 
 RUN npm run build
 
-FROM nginx:stable-alpine
+FROM nginx:stable-alpine-slim
 
 # Apply the latest Alpine security patches, so the image does not
 # depend on how recently the base image tag was rebuilt

@@ -187,6 +187,7 @@ jobs:
           # Only Critical and High block. A gate that fails on every
           # unfixable Low finding gets overridden and stops being a gate.
           only-severities: critical,high
+          only-fixed: true
           exit-code: true
 
       - name: Docker Scout policy evaluation

@@ -1,0 +1,15 @@
+# Save as .dockerignore inside each service directory.
+# Without it, COPY . . ships tests/ and .env.test into the production image.
+
+tests/
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+.git/
+.gitignore
+Dockerfile
+README.md

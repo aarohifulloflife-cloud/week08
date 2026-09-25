@@ -199,4 +199,8 @@ cython_debug/
 node_modules/
 *.env
 .env
-kubernetes/07-application-secret.yaml
+kubernetes/07-application-secret.yamlterraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+terraform/tfplan

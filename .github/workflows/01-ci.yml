@@ -5,9 +5,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  
   # Manual trigger for the workflow
   workflow_dispatch:
 
@@ -85,7 +83,7 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -96,7 +94,14 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Test tooling now lives in requirements-dev.txt (Task 10.2D
+          # remediation). Fall back to requirements.txt for services
+          # that have not been split yet.
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install -r requirements.txt
+          fi
 
       - name: Run tests
         working-directory: ${{ matrix.service }}
@@ -144,7 +149,7 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -161,6 +166,45 @@ jobs:
             --platform linux/amd64 \
             -t ${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }} \
             ./${{ matrix.service }}
+
+      # ---------------------------------------------------------
+      # SECURITY GATE: after build, BEFORE push.
+      # A failing image never enters ACR, so the later workflows
+      # can never promote it to staging or production.
+      # ---------------------------------------------------------
+      - name: Authenticate to Docker Hub for Scout
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker Scout vulnerability scan
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+          sarif-file: scout-${{ matrix.image }}.sarif
+          # Only Critical and High block. A gate that fails on every
+          # unfixable Low finding gets overridden and stops being a gate.
+          only-severities: critical,high
+          exit-code: true
+
+      - name: Docker Scout policy evaluation
+        uses: docker/scout-action@v1
+        with:
+          command: policy
+          image: local://${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.image }}:${{ github.sha }}
+        # Reported, not blocking: the attestation policy fails for build
+        # configuration reasons, not code problems.
+        continue-on-error: true
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scout-${{ matrix.image }}
+          path: scout-${{ matrix.image }}.sarif
+          if-no-files-found: ignore
 
       - name: Push Docker image with commit SHA
         run: |

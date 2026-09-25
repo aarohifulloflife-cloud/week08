@@ -2,7 +2,7 @@ location            = "eastasia"
 resource_group_name = "koalatech-week08-rg"
 
 # Replace with a unique name for your Azure Container Registry 
-acr_name             = "sit722acr225138095"
+acr_name = "sit722acr225138095"
 
 # Replace with a unique name for your Azure Storage Account
 storage_account_name = "sit722st225138095"
@@ -17,8 +17,8 @@ aks_node_vm_size = "Standard_D2s_v3"
 environment = "development"
 
 tags = {
-    Project    = "KoalaTech Course Platform"
-    ManagedBy  = "Terraform"
-    Practical  = "Week08"
-    Environment = "Development"
+  Project     = "KoalaTech Course Platform"
+  ManagedBy   = "Terraform"
+  Practical   = "Week08"
+  Environment = "Development"
 }

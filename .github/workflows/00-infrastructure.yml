@@ -1,0 +1,81 @@
+name: 00 - Infrastructure
+
+# Infrastructure as Code stage. Runs before anything else, because the
+# cluster and registry the later workflows deploy into must exist first.
+#   pull_request -> fmt, validate and plan only. Never mutates.
+#   push to terraform/** or manual apply -> plan then apply.
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["terraform/**"]
+  push:
+    branches: [main]
+    paths: ["terraform/**"]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to run"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply]
+
+env:
+  TF_VERSION: "1.9.8"
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+  TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Cheapest failure first.
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialise
+        run: terraform init
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      - name: Plan
+        run: terraform plan -no-color -input=false -out=tfplan | tee plan.txt
+
+      - name: Publish plan to job summary
+        if: always()
+        run: |
+          echo "### Terraform Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo '```terraform' >> "$GITHUB_STEP_SUMMARY"
+          tail -60 plan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Never apply on pull_request: a PR can come from a fork, and
+      # applying from untrusted code would change real infrastructure.
+      - name: Apply
+        if: >
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Show outputs
+        if: >
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+        run: terraform output

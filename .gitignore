@@ -204,3 +204,5 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/*.tfvars
 terraform/tfplan
+
+!terraform/templates/**/*.tftpl

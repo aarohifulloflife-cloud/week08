@@ -20,21 +20,27 @@ spec:
   metrics:
     - name: success-rate
       interval: 30s
-      # Let the canary receive traffic and be scraped at least twice
-      # before the first measurement.
-      initialDelay: 30s
-      # One bad reading is tolerated. A second aborts the rollout.
-      failureLimit: 1
-      # Prometheus unreachable three times in a row also aborts.
-      consecutiveErrorLimit: 3
-      # An empty result means no canary traffic, which fails closed.
+      # A new pod takes 30 to 60 seconds to be discovered and scraped
+      # twice, so wait a minute before the first measurement.
+      initialDelay: 60s
+      # A real reading below 95% is a failure. One is tolerated, the
+      # second aborts the rollout.
       successCondition: len(result) > 0 && result[0] >= 0.95
+      failureCondition: len(result) > 0 && result[0] < 0.95
+      failureLimit: 1
+      # No data matches neither condition, so it is Inconclusive rather
+      # than Failed. Up to 4 are allowed (2 minutes of warm-up). If there
+      # is still no data after that, the rollout pauses for a person to
+      # decide. It never promotes without evidence.
+      inconclusiveLimit: 4
+      # Prometheus unreachable three times in a row aborts.
+      consecutiveErrorLimit: 3
       provider:
         prometheus:
           address: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
           # 1 minus the canary's 5xx ratio. "or vector(0)" makes a canary
           # with no errors score 1 and a canary with only errors score 0.
-          # A canary with no traffic returns nothing and fails closed.
+          # A canary with no data yet returns nothing (Inconclusive).
           query: |
             1 - (
               (sum(rate(http_requests_total{namespace="production", pod=~"student-service-{{args.canary-hash}}-.*", status="5xx"}[1m])) or vector(0))

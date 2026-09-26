@@ -1,5 +1,6 @@
 import logging
 import time
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -100,7 +101,8 @@ def root() -> dict[str, str]:
     return {
         "message": (
             "KoalaTech University Student Service is running."
-        )
+        ),
+        "banner": os.environ["SERVICE_BANNER"],
     }
 
 
